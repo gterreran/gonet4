@@ -3,20 +3,18 @@
 import time
 start_time = time.perf_counter()
 
-import serial
 import subprocess
 import socket
 import os
 import sys
-import shutil
 from time import gmtime, strftime
-from PIL import Image, ImageDraw, ImageFont, ExifTags
+from PIL import Image, ImageDraw, ImageFont
 import glob
-import re
 from collections import deque
-from datetime import datetime
-import math
 import numpy as np
+
+# Define a set of strings that will be considered as False
+false_set = {'false', '0', 'f', 'n', 'no', 'nope', 'nyet', 'of course not', 'no way'}
 
 open('/home/pi/Tools/Camera/Search GPS', 'a').close()
 sys.path.insert(0, '/home/pi/Tools/FetchGPS')
@@ -46,7 +44,7 @@ shutter_speed = 6000000
 number_of_images = 5
 
 # Sensitivity (ISO)
-ISO = 800
+ISO = 'legacy'
 
 #Dynamic Range Compression (DRC) options :off,low,med,high
 drc = 'off'
@@ -60,7 +58,8 @@ white_balance_gains = (3.35, 1.59)
 #Brightness
 br = 50
 
-use_gps = bool(True)
+use_gps = True
+use_legacy_iso = True
 
 ### End of hard coded image parameters
 
@@ -83,10 +82,14 @@ if  len(sys.argv) >1:
 
       number_of_images = int(input("Please Enter Your Desired Number of Images: "))
       shutter_speed = int(input("Please Enter Your Desired Shutter Speed in Microseconds: "))
-      ISO = int(input("Please Enter Your Desired ISO: "))
+      iso_legacy = input("Do you want to use the legacy ISO setting?: ")
+      if iso_legacy.lower() in false_set:
+         use_legacy_iso = False
+         ISO = int(input("Please Enter Your Desired ISO [100,200,400,800]: "))
       gps = input("Do want gps data? ")
-      if gps.lower() in ['false', '0', 'f', 'n', 'no', 'nope', 'nyet', 'of course not', 'no way']:
-         use_gps = bool() 
+      if gps.lower() in false_set:
+         use_gps = False
+       
 
  
 
@@ -129,11 +132,22 @@ if  len(sys.argv) >1:
              elif stripped_spline[0] == 'use_gps':
                  #use_gps = bool(stripped_spline[1].capitalize())
                  #if stripped_spline[1].capitalize() == 'False':
-                 if stripped_spline[1].lower() in ['false', '0', 'f', 'n', 'no', 'nope', 'nyet', 'of course not', 'no way']:
-                    use_gps = bool()
+                 if stripped_spline[1].lower() in false_set:
+                    use_gps = False
                  else:
-                    use_gps = bool('True') 
+                    use_gps = True
+
+             elif stripped_spline[0] == 'use_legacy_iso':
+                 if stripped_spline[1].lower() in false_set:
+                    use_legacy_iso = False
+                 else:
+                    use_legacy_iso = True
+
 ######## End of parameter file read ###########
+
+# double check if using ISO legacy mode
+if use_legacy_iso:
+    ISO = 'legacy'
 
 # put nifty comment about gps bypass here!
 print(f'use_gps = {use_gps}')
@@ -375,18 +389,36 @@ start_imaging = time.perf_counter()
 
 try:
     camera = PiCamera(sensor_mode=3)
-    sleep(1)
+    if not use_legacy_iso:
+        sleep(1)
     # Set a framerate of 1/6fps, then set shutter
-    # speed to 6s and ISO to 800
+    # speed to 6 seconds (6000000 microseconds)
     camera.framerate_range = (Fraction(1,100), Fraction(1,2)) 
     camera.shutter_speed = shutter_speed
-    camera.iso = ISO
     camera.drc_strength=drc
     camera.awb_gains = white_balance_gains
     camera.brightness = br
     camera.still_stats = True
     camera.resolution = (4056, 3040)
-    # experiment to dump metering
+    if use_legacy_iso:
+        analog_gain = []
+        digital_gain = []
+        camera.iso = ISO
+        # waiting on gains to stabilize
+        print('Stabilyzing gains')
+        start_gain_stabilization = time.time()
+        # fot the first 10s the gains don't seem to move at all
+        # so we wait 15s before starting to check them
+        time.sleep(15)
+        #waiting up to 150s for gains to stabilize
+        while time.time() - start_gain_stabilization < 150:
+            time.sleep(2)
+            analog_gain.append(camera.analog_gain)
+            digital_gain.append(camera.digital_gain)
+            # if you have at least 3 points, check if gains are stable
+            if len(analog_gain)>2 and len(set(analog_gain[-3:])) == 1 and len(set(digital_gain[-3:])) == 1:
+                print(f"gains stabilized for ISO {ISO} in {time.time() - start_gain_stabilization}s")
+                break
     camera.exposure_mode = 'off'
     camera.stop_preview()
     camera.awb_mode = 'off'
