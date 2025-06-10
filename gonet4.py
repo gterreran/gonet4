@@ -82,7 +82,7 @@ if  len(sys.argv) >1:
 
       number_of_images = int(input("Please Enter Your Desired Number of Images: "))
       shutter_speed = int(input("Please Enter Your Desired Shutter Speed in Microseconds: "))
-      iso_legacy = input("Do you want to use the legacy ISO setting?: ")
+      iso_legacy = input("Do you want to use the legacy ISO setting [Y]?: ")
       if iso_legacy.lower() in false_set:
          use_legacy_iso = False
          ISO = int(input("Please Enter Your Desired ISO [100,200,400,800]: "))
@@ -126,8 +126,10 @@ if  len(sys.argv) >1:
              elif stripped_spline[0] == 'shutter_speed':
                  shutter_speed = int(stripped_spline[1])
       
+             # if you provide and ISO, legacy mode is turned off
              elif stripped_spline[0] == 'ISO':
                  ISO = int(stripped_spline[1])
+                 use_legacy_iso = False
    
              elif stripped_spline[0] == 'use_gps':
                  #use_gps = bool(stripped_spline[1].capitalize())
@@ -137,17 +139,21 @@ if  len(sys.argv) >1:
                  else:
                     use_gps = True
 
-             elif stripped_spline[0] == 'use_legacy_iso':
-                 if stripped_spline[1].lower() in false_set:
-                    use_legacy_iso = False
-                 else:
-                    use_legacy_iso = True
 
 ######## End of parameter file read ###########
 
 # double check if using ISO legacy mode
 if use_legacy_iso:
-    ISO = 'legacy'
+    print("Using legacy ISO mode")
+else:
+    allowed_values = {100, 200, 400, 800}
+    # If ISO is not in the allowed set, replace it with the closest allowed value
+    if ISO not in allowed_values:
+        old_iso = ISO
+        ISO = min(allowed_values, key=lambda x: abs(x - ISO))
+        print(f"ISO value {old_iso} is not allowed. Adjusted to nearest valid ISO: {ISO}")
+
+    print(f"Using ISO: {ISO}")
 
 # put nifty comment about gps bypass here!
 print(f'use_gps = {use_gps}')
@@ -389,7 +395,7 @@ start_imaging = time.perf_counter()
 
 try:
     camera = PiCamera(sensor_mode=3)
-    if not use_legacy_iso:
+    if use_legacy_iso:
         sleep(1)
     # Set a framerate of 1/6fps, then set shutter
     # speed to 6 seconds (6000000 microseconds)
@@ -400,7 +406,7 @@ try:
     camera.brightness = br
     camera.still_stats = True
     camera.resolution = (4056, 3040)
-    if use_legacy_iso:
+    if not use_legacy_iso:
         analog_gain = []
         digital_gain = []
         camera.iso = ISO
